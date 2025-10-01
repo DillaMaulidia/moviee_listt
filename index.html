@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Movie Log — Baby Blue & Dark Blue</title>
+  <!-- Hubungkan ke file CSS -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap" role="application">
+    <header>
+      <div class="brand">
+        <div class="logo">ML</div>
+        <div>
+          <h1>Movie Log — Catat Film Favoritmu</h1>
+          <div class="subtitle">Terus Ingat Film Favoritmu</div>
+        </div>
+      </div>
+      <div>
+        <button class="btn ghost" onclick="exportJSON()">Export</button>
+      </div>
+    </header>
+
+    <main>
+      <div style="display:flex;flex-direction:column">
+        <div class="search-row">
+          <input id="search" placeholder="Cari judul atau genre..." oninput="renderCards()" />
+          <select id="sort" onchange="renderCards()">
+            <option value="new">Terbaru</option>
+            <option value="rating">Rating tertinggi</option>
+            <option value="year">Tahun</option>
+          </select>
+          <button class="btn" onclick="openAdd()">Tambah Film</button>
+        </div>
+
+        <div id="cards" class="cards" aria-live="polite">
+          <!-- movie cards inserted here -->
+        </div>
+      </div>
+    </main>
+
+    <aside>
+      <div class="panel">
+        <h3 style="margin-top:0">Tambah / Edit Film</h3>
+        <form id="movieForm" onsubmit="return saveMovie(event)">
+          <label for="title">Judul</label>
+          <input id="title" required />
+
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <div style="flex:1">
+              <label for="year">Tahun</label>
+              <input id="year" type="number" min="1888" max="2099" />
+            </div>
+            <div style="width:120px">
+              <label for="rating">Rating (1-10)</label>
+              <input id="rating" type="number" min="1" max="10" />
+            </div>
+          </div>
+
+          <label style="margin-top:10px">Genre</label>
+          <input id="genre" placeholder="Contoh: Drama, Action" />
+
+          <label style="margin-top:10px">Catatan / Review</label>
+          <textarea id="notes" placeholder="Pendapat singkat tentang film..."></textarea>
+
+          <label style="margin-top:10px">Cover Film</label>
+          <input id="cover" type="file" accept="image/*" onchange="previewCover(event)" />
+
+          <img id="coverPreview" style="margin-top:8px;max-width:120px;border-radius:8px;display:none" />
+
+          <div class="controls">
+            <button class="btn" type="submit">Simpan</button>
+            <button type="button" class="btn ghost" onclick="resetForm()">Reset</button>
+          </div>
+        </form>
+      </div>
+
+      <div style="height:14px"></div>
+
+      <div class="panel">
+        <h4 style="margin:0 0 8px">Panduan Singkat</h4>
+        <p style="margin:0;font-size:13px;color:rgba(7,59,102,0.7)">
+          Isi judul, tahun, rating, genre, catatan, dan cover. Klik kartu untuk edit, tombol Hapus untuk menghapus.
+        </p>
+      </div>
+    </aside>
+
+    <footer>
+      Movie Log • Baby Blue + Dark Blue — Demo sederhana
+    </footer>
+  </div>
+
+  <script>
+    const storageKey = 'movie-log-demo-v2';
+    let movies = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    let editId = null;
+    let coverData = null;
+
+    const cardsEl = document.getElementById('cards');
+    const form = document.getElementById('movieForm');
+
+    function uid(){return Math.random().toString(36).slice(2,9)}
+
+    function renderCards(){
+      const q = document.getElementById('search').value.trim().toLowerCase();
+      const sort = document.getElementById('sort').value;
+      let list = [...movies];
+      if(q) list = list.filter(m => (m.title+ ' ' + (m.genre||'') + ' ' + (m.notes||'')).toLowerCase().includes(q));
+      if(sort==='rating') list.sort((a,b)=> (b.rating||0)-(a.rating||0));
+      if(sort==='year') list.sort((a,b)=> (b.year||0)-(a.year||0));
+      if(sort==='new') list.sort((a,b)=> new Date(b.added)-new Date(a.added));
+
+      cardsEl.innerHTML = '';
+      if(list.length===0){
+        cardsEl.innerHTML = '<div style="grid-column:1/-1;color:rgba(7,59,102,0.6);padding:18px;border-radius:10px;background:rgba(255,255,255,0.6)">Belum ada film. Tambah film lewat form di samping.</div>';
+        return;
+      }
+
+      list.forEach(m=>{
+        const el = document.createElement('div'); el.className='card';
+        const poster = document.createElement('div'); poster.className='poster';
+
+        if(m.cover){
+          const img = document.createElement('img');
+          img.src = m.cover;
+          img.style.width = '100%';
+          img.style.height = '100%';
+          img.style.objectFit = 'cover';
+          img.style.borderRadius = '8px';
+          poster.appendChild(img);
+        } else {
+          poster.textContent = (m.title||'').slice(0,2).toUpperCase();
+        }
+
+        const meta = document.createElement('div'); meta.className='meta';
+        const h = document.createElement('h3'); h.textContent = m.title;
+        const p = document.createElement('p'); p.textContent = `${m.year || '-'} • Rating: ${m.rating || '-'}
+${m.genre? 'Genre: ' + m.genre : ''}`;
+        const notes = document.createElement('div'); notes.className='tags'; notes.textContent = m.notes || '';
+        const actions = document.createElement('div'); actions.style.marginTop='8px';
+
+        const editBtn = document.createElement('button'); editBtn.className='btn ghost'; editBtn.textContent='Edit'; editBtn.onclick = ()=> loadEdit(m.id);
+        const delBtn = document.createElement('button'); delBtn.className='btn ghost'; delBtn.style.marginLeft='8px'; delBtn.textContent='Hapus'; delBtn.onclick = ()=> { if(confirm('Hapus film ini?')) { movies = movies.filter(x=>x.id!==m.id); saveState(); renderCards(); }};
+
+        actions.appendChild(editBtn); actions.appendChild(delBtn);
+
+        meta.appendChild(h); meta.appendChild(p); meta.appendChild(notes); meta.appendChild(actions);
+        el.appendChild(poster); el.appendChild(meta);
+        el.onclick = (e)=>{ if(e.target.tagName.toLowerCase()!=='button') loadEdit(m.id) };
+        cardsEl.appendChild(el);
+      })
+    }
+
+    function saveState(){ localStorage.setItem(storageKey, JSON.stringify(movies)); }
+
+    function saveMovie(e){
+      e && e.preventDefault();
+      const title = document.getElementById('title').value.trim();
+      if(!title) return alert('Judul harus diisi');
+      const year = parseInt(document.getElementById('year').value) || null;
+      const rating = parseFloat(document.getElementById('rating').value) || null;
+      const genre = document.getElementById('genre').value.trim();
+      const notes = document.getElementById('notes').value.trim();
+
+      if(editId){
+        const idx = movies.findIndex(m=>m.id===editId);
+        if(idx>-1){ 
+          movies[idx] = {...movies[idx], title, year, rating, genre, notes};
+          if(coverData) movies[idx].cover = coverData;
+        }
+      } else {
+        movies.push({
+          id:uid(), title, year, rating, genre, notes,
+          cover: coverData,
+          added:new Date().toISOString()
+        });
+      }
+      saveState(); resetForm(); renderCards();
+    }
+
+    function loadEdit(id){
+      const m = movies.find(x=>x.id===id); if(!m) return;
+      editId = id;
+      document.getElementById('title').value = m.title || '';
+      document.getElementById('year').value = m.year || '';
+      document.getElementById('rating').value = m.rating || '';
+      document.getElementById('genre').value = m.genre || '';
+      document.getElementById('notes').value = m.notes || '';
+      if(m.cover){
+        coverData = m.cover;
+        document.getElementById('coverPreview').src = m.cover;
+        document.getElementById('coverPreview').style.display = 'block';
+      }
+      window.scrollTo({top:0,behavior:'smooth'});
+    }
+
+    function resetForm(){ 
+      editId=null; form.reset(); 
+      coverData=null; 
+      document.getElementById('coverPreview').style.display='none'; 
+    }
+
+    function openAdd(){ resetForm(); document.getElementById('title').focus(); }
+
+    function exportJSON(){ 
+      const data = JSON.stringify(movies, null, 2); 
+      const blob = new Blob([data], {type:'application/json'}); 
+      const url = URL.createObjectURL(blob); 
+      const a=document.createElement('a'); 
+      a.href=url; a.download='movie-log.json'; a.click(); 
+      URL.revokeObjectURL(url); 
+    }
+
+    function previewCover(e){
+      const file = e.target.files[0];
+      if(file){
+        const reader = new FileReader();
+        reader.onload = function(ev){
+          coverData = ev.target.result;
+          const img = document.getElementById('coverPreview');
+          img.src = coverData;
+          img.style.display = 'block';
+        }
+        reader.readAsDataURL(file);
+      }
+    }
+
+    // contoh data awal
+    if(movies.length===0){ 
+      movies = [ 
+        {id:uid(), title:'Interstellar', year:2014, rating:9, genre:'Sci-Fi', notes:'Visual & score luar biasa', added:new Date().toISOString()}, 
+        {id:uid(), title:'Parasite', year:2019, rating:9, genre:'Drama/Thriller', notes:'Kritik sosial yang tajam', added:new Date().toISOString()} 
+      ]; 
+      saveState(); 
+    }
+
+    renderCards();
+  </script>
+</body>
+</html>
